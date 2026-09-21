@@ -107,6 +107,38 @@ and completed action items cannot be uncompleted.
 The test source currently cannot compile because the required services are missing.
 These are specifications for unfinished functionality, not a passing test suite.
 
+## Continuous integration and coverage
+
+`.github/workflows/ci.yml` runs on pushes to every branch and pull requests targeting
+`main`. It uses an Ubuntu runner, Temurin Java 21, and a Maven dependency cache keyed
+by `pom.xml`. It runs:
+
+```sh
+mvn verify --batch-mode --no-transfer-progress
+```
+
+JaCoCo instruments tests, writes HTML and XML reports to `target/site/jacoco`, and
+fails `verify` if aggregate line coverage is below 80%. This is a project-wide line
+coverage requirement, not branch coverage or an 80% requirement for each class.
+CI also fails if a successful Maven run produces no coverage report.
+
+PR runs upload the XML report even when the coverage gate fails. A separate
+`coverage-comment.yml` workflow posts the percentage on the matching PR, or states
+that coverage is unavailable if compilation failed before a report could be generated.
+It runs from the default branch, never checks out PR code or restores build caches,
+and has only artifact-read and PR-comment permissions. This separation supports fork
+PRs without giving their build jobs write credentials or repository secrets.
+The comment workflow must exist on the repository's default branch before it can run.
+Repository and organization policies must permit Actions to comment on PRs.
+
+Comments are informational, not a security boundary: PR code can alter its own
+coverage output. Require the `Verify and enforce coverage` check through branch
+protection, and require trusted review of workflow, build, and test changes.
+Actions are pinned to commit SHAs; keep those pins and Maven dependencies updated.
+
+The existing missing-service compilation blocker also affects CI. Neither tests nor
+the coverage requirement are bypassed by this workflow.
+
 ## Project structure
 
 Source code is under `src/main/java/com/stackcraft/retroflow`:

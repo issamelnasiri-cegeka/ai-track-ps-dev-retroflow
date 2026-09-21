@@ -1,0 +1,54 @@
+name: Maven CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maven-ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify and enforce coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 21 and Maven cache
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          cache-dependency-path: pom.xml
+
+      - name: Compile, test, and enforce 80% line coverage
+        run: mvn verify --batch-mode --no-transfer-progress
+
+      - name: Require a coverage report
+        run: test -s target/site/jacoco/jacoco.xml
+
+      # Failed tests stop Maven before verify; report any execution data they produced.
+      - name: Generate coverage after a failure
+        if: ${{ failure() && hashFiles('target/jacoco.exec') != '' }}
+        run: mvn jacoco:report --batch-mode --no-transfer-progress
+
+      - name: Upload PR coverage data
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && hashFiles('target/site/jacoco/jacoco.xml') != '' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jacoco-${{ github.run_attempt }}
+          path: target/site/jacoco/jacoco.xml
+          if-no-files-found: error
+          retention-days: 7
+

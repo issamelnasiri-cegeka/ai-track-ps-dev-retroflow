@@ -1,0 +1,162 @@
+name: PR coverage comment
+
+on:
+  workflow_run:
+    workflows: [Maven CI]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  comment:
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      # Never check out PR code or restore its caches in this privileged workflow.
+      - name: Locate the PR and download coverage data
+        id: coverage
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const run = context.payload.workflow_run;
+            const repository = context.payload.repository;
+            const { data: workflow } = await github.rest.actions.getWorkflow({
+              ...context.repo, workflow_id: 'ci.yml'
+            });
+            if (run.workflow_id !== workflow.id) {
+              throw new Error('Unexpected source workflow');
+            }
+            const candidates = await github.paginate(
+              github.rest.repos.listPullRequestsAssociatedWithCommit,
+              { ...context.repo, commit_sha: run.head_sha, per_page: 100 }
+            );
+            const prs = candidates.filter(pr =>
+              pr.state === 'open' &&
+              pr.base.ref === 'main' &&
+              pr.base.repo.id === repository.id &&
+              pr.head.repo?.id === run.head_repository?.id &&
+              pr.head.sha === run.head_sha
+            );
+            if (prs.length === 0) {
+              core.notice('No open PR to main matches this run and current head SHA.');
+              return;
+            }
+            core.setOutput('prs', JSON.stringify(prs.map(pr => pr.number)));
+            const artifacts = await github.paginate(
+              github.rest.actions.listWorkflowRunArtifacts,
+              { ...context.repo, run_id: run.id, per_page: 100 }
+            );
+            const artifact = artifacts.find(item => item.name === `jacoco-${run.run_attempt}`);
+            if (!artifact || artifact.expired) {
+              core.warning('Coverage artifact is unavailable; the comment will state this.');
+              return;
+            }
+            if (artifact.size_in_bytes > 1024 * 1024) {
+              throw new Error('Coverage archive exceeds the 1 MiB limit');
+            }
+            const response = await github.rest.actions.downloadArtifact({
+              ...context.repo, artifact_id: artifact.id, archive_format: 'zip'
+            });
+            const archive = Buffer.from(response.data);
+            if (archive.length > 1024 * 1024) {
+              throw new Error('Downloaded coverage archive exceeds the 1 MiB limit');
+            }
+            fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'coverage.zip'), archive);
+            core.setOutput('available', 'true');
+
+      - name: Read bounded coverage data without extracting files
+        if: ${{ steps.coverage.outputs.available == 'true' }}
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          import zipfile
+
+          temporary = Path(os.environ["RUNNER_TEMP"])
+          with zipfile.ZipFile(temporary / "coverage.zip") as archive:
+              entries = archive.infolist()
+              if len(entries) != 1 or entries[0].filename != "jacoco.xml":
+                  raise ValueError("Expected a single jacoco.xml archive entry")
+              if entries[0].file_size > 10 * 1024 * 1024:
+                  raise ValueError("Coverage XML exceeds the 10 MiB limit")
+              with archive.open(entries[0]) as report:
+                  xml = report.read(10 * 1024 * 1024 + 1)
+              if len(xml) > 10 * 1024 * 1024 or b"<!ENTITY" in xml:
+                  raise ValueError("Oversized XML or entity declarations are not allowed")
+              root = ET.fromstring(xml)
+          if root.tag != "report":
+              raise ValueError("Expected a JaCoCo report")
+          counters = root.findall("./counter[@type='LINE']")
+          if len(counters) != 1:
+              raise ValueError("Expected exactly one aggregate LINE counter")
+          covered = int(counters[0].attrib["covered"])
+          missed = int(counters[0].attrib["missed"])
+          if min(covered, missed) < 0 or covered + missed > 1_000_000_000:
+              raise ValueError("Invalid coverage counts")
+          (temporary / "coverage-summary.json").write_text(
+              json.dumps({"covered": covered, "missed": missed}), encoding="utf-8"
+          )
+
+      - name: Post coverage comment
+        if: ${{ steps.coverage.outputs.prs != '' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBERS: ${{ steps.coverage.outputs.prs }}
+          COVERAGE_AVAILABLE: ${{ steps.coverage.outputs.available }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const path = require('node:path');
+            const run = context.payload.workflow_run;
+            let coverage = '**Line coverage: unavailable.** The run produced no usable report.';
+            if (process.env.COVERAGE_AVAILABLE === 'true') {
+              const { covered, missed } = JSON.parse(fs.readFileSync(
+                path.join(process.env.RUNNER_TEMP, 'coverage-summary.json'), 'utf8'
+              ));
+              if (![covered, missed].every(value => Number.isSafeInteger(value) && value >= 0)) {
+                throw new Error('Invalid coverage counts');
+              }
+              const total = covered + missed;
+              if (total > 0) {
+                const percentage = (100 * covered / total).toFixed(2);
+                const gate = covered * 100 >= total * 80 ? 'meets' : 'below';
+                coverage = `**Line coverage: ${percentage}%** (${covered}/${total} lines; ${gate} the 80% minimum).`;
+              } else {
+                coverage = '**Line coverage: unavailable.** The report contains no executable lines.';
+              }
+            }
+            const marker = `<!-- retroflow-coverage:${run.id}:${run.run_attempt} -->`;
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${run.id}`;
+            const body = `${marker}\n${coverage}\n\nCommit: \`${run.head_sha}\`\n\n[CI run](${url}) - ${run.conclusion}.`;
+            for (const number of JSON.parse(process.env.PR_NUMBERS)) {
+              const { data: pr } = await github.rest.pulls.get({
+                ...context.repo, pull_number: number
+              });
+              if (pr.state !== 'open' || pr.head.sha !== run.head_sha || pr.base.ref !== 'main') {
+                core.notice(`Skipping PR #${number}: its state or head changed.`);
+                continue;
+              }
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                ...context.repo, issue_number: number, per_page: 100
+              });
+              const existing = comments.find(comment =>
+                comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(marker)
+              );
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  ...context.repo, comment_id: existing.id, body
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  ...context.repo, issue_number: number, body
+                });
+              }
+            }
