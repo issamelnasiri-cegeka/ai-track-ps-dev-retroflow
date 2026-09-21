@@ -3,11 +3,10 @@
 Spring Boot backend for StackCraft's retrospective tool. The intended business
 rules are in the [project brief](docs/retroflow-brief.md).
 
-**Current status:** the application starts, H2 and health reporting work, and
-controllers validate requests. However, `TeamService` and `RetrospectiveService`
-still throw `UnsupportedOperationException`. Valid business requests return HTTP
-500, and the three business-rule tests error. This is an unfinished API, not a
-production-ready service.
+**Current status:** team and retrospective HTTP routes use implemented,
+transactional services. The service layer also supports feedback/action-item
+creation, retrieval, editing, deletion, completion, and filtering. Those item
+operations do not yet have HTTP routes. This is not a production-ready service.
 
 Stack: Java 21, Spring Boot 3.3.4, Maven, Spring MVC, Spring Data JPA/Hibernate,
 Bean Validation, Actuator, and in-memory H2. Tests use JUnit 5 and AssertJ.
@@ -55,8 +54,8 @@ connection; initial image and dependency downloads depend on network speed.
    ```
 
    Expected response: `{"status":"UP"}`. Brief connection errors while Java starts
-   are retried. This confirms application/database health, not that business
-   operations are implemented. There is no frontend at `/`; HTTP 404 there is normal.
+   are retried. This confirms application/database health. There is no frontend
+   at `/`; HTTP 404 there is normal.
 
 The application is now listening at `http://localhost:8080`. Try the requests in
 [Manual API testing](#manual-api-testing).
@@ -94,8 +93,7 @@ mvn spring-boot:run
 
 Wait for the `Started RetroflowApplication` log, then use the same health and API
 requests as for Docker. Stop with Ctrl+C. This command compiles test sources but
-does not run tests, so the current business-rule test errors do not block startup.
-No test-skip option is needed.
+does not run tests. No test-skip option is needed.
 
 If Docker or another application already uses port 8080:
 
@@ -138,11 +136,11 @@ machine; the Docker quickstart publishes only to localhost.
 | Method | Path | Current behavior |
 | --- | --- | --- |
 | GET | `/actuator/health` | HTTP 200 with `{"status":"UP"}` when healthy |
-| POST | `/api/teams` | Validates input; valid requests reach an unimplemented service and return HTTP 500 |
-| GET | `/api/teams/{id}` | Requires a positive ID; otherwise reaches the service stub |
-| POST | `/api/teams/{teamId}/retrospectives` | Validates ID/title; otherwise reaches the service stub |
-| GET | `/api/teams/{teamId}/retrospectives` | Requires a positive team ID; otherwise reaches the service stub |
-| PUT | `/api/retrospectives/{id}/close` | Requires a positive ID; otherwise reaches the service stub |
+| POST | `/api/teams` | HTTP 201 with the created team |
+| GET | `/api/teams/{id}` | HTTP 200 with the team; 404 if missing |
+| POST | `/api/teams/{teamId}/retrospectives` | HTTP 201; 409 if the team already has an OPEN retrospective |
+| GET | `/api/teams/{teamId}/retrospectives` | HTTP 200 with the team's retrospectives; 404 if the team is missing |
+| PUT | `/api/retrospectives/{id}/close` | HTTP 200 with the closed retrospective; 409 if already CLOSED |
 
 There are no feedback/action-item HTTP routes, Swagger UI, or OpenAPI endpoint yet.
 `RetroflowController` is a leftover empty placeholder; the actual routes are in
@@ -178,7 +176,7 @@ curl --include http://localhost:8080/api/teams/0
 
 Expected: **HTTP 400**, with an `id must be positive` message.
 
-### Exercise the current implementation boundary
+### Create a team
 
 This payload satisfies request validation:
 
@@ -188,19 +186,63 @@ curl --include --request POST http://localhost:8080/api/teams \
   --data '{"name":"Platform","members":["Alice","Bob"]}'
 ```
 
-**Current result: HTTP 500**, because `TeamService.createTeam` is not implemented.
-Once implemented, the controller is designed to return HTTP 201 and a team response
-with `id`, `name`, and `members`. Do not assume a team was created or that ID 1 exists.
+Expected: **HTTP 201** with `id`, `name`, and `members`. Use the returned ID in
+subsequent requests rather than assuming ID 1 exists.
 
 Team/member names must be nonblank and at most 100 characters; a team needs at
 least one member. Retrospective creation accepts `{"title":"Sprint 1"}` with a
 nonblank title of at most 200 characters.
 
-The global handler maps validation errors to 400, missing-resource exceptions to
-404, and business-rule exceptions to 409. The current unimplemented-service 500s
-use Spring Boot's default error response instead of that custom error format.
+The global handler maps validation/input errors to 400, missing-resource exceptions
+to 404, and business-rule exceptions to 409.
 You can import the curl commands into Postman or run equivalent requests in an IDE
 HTTP client; no account, API key, or seed data is needed.
+
+## Service behavior
+
+Business checks run in `TeamService` and `RetrospectiveService`, including for
+direct service callers. Dependencies use constructor injection. Write operations
+are transactional: creation locks the team before checking for an OPEN retrospective,
+and item mutations share a retrospective row lock with closure.
+
+Each JPA entity has its own repository. `ActionItemRepository` handles typed action
+lookups, filtering, and action-specific writes. `FeedbackItemRepository` supports
+the polymorphic feedback operations, which include action items.
+
+Team names need not be unique; IDs identify teams. Member names must be nonblank,
+are stored as a set, and are matched exactly against `submittedBy`. No trimming or
+case folding is applied. Retrospective dates use today's date in the server's
+timezone.
+
+Closed retrospectives remain readable but cannot be reopened or changed.
+This includes completing action items after closure. Closing twice fails.
+For OPEN retrospectives, completing an already-completed action, uncompleting an
+already-incomplete action, and reopening an already-OPEN retrospective return the
+unchanged entity. Completed actions can never be uncompleted.
+
+Additional service methods (no new HTTP endpoints):
+
+| Method | Behavior |
+| --- | --- |
+| `getFeedbackItemsForRetrospective(id)` | All feedback and action items, ordered by ID |
+| `updateFeedbackItem(itemId, content)` | Changes content only, including for action items |
+| `updateActionItem(itemId, content, priority)` | Changes content and priority, preserving completion |
+| `deleteFeedbackItem(itemId)` | Deletes either feedback subtype while OPEN |
+| `getActionItems(retrospectiveId, priority, completed)` | Action items for that retrospective, ordered by ID; null filters are omitted and supplied filters combine with AND |
+| `reopenRetrospective(id)` | Rejects CLOSED retrospectives; returns OPEN ones unchanged |
+
+Types and priorities use exact enum names. `addFeedbackItem` accepts `WENT_WELL`
+and `NEEDS_IMPROVEMENT`; use `addActionItem` for `ACTION_ITEM` so a priority is
+always supplied. Type and submitter cannot be edited.
+
+Specific business exceptions extend `RetroflowException`:
+`TeamMustHaveMembersException`, `OpenRetrospectiveExistsException`,
+`RetrospectiveClosedException`, `RetrospectiveReopeningNotAllowedException`,
+`ActionItemUncompletionNotAllowedException`, and `SubmitterNotTeamMemberException`.
+Invalid text/IDs use `InvalidInputException`; invalid enums use its
+`InvalidFeedbackTypeException` and `InvalidActionPriorityException` subtypes.
+Missing resources (including a regular feedback ID used as an action ID) use
+`ResourceNotFoundException`.
 
 ## Tests and coverage
 
@@ -210,25 +252,21 @@ Run the same lifecycle used by CI:
 mvn verify --batch-mode --no-transfer-progress
 ```
 
-For a shorter feedback loop focused on the existing test class:
+For a shorter feedback loop focused on service behavior:
 
 ```sh
-mvn -Dtest=RetroflowBusinessRulesTest test
+mvn -Dtest=RetroflowBusinessRulesTest,ServiceLayerTest test
 ```
 
-**Both commands currently exit unsuccessfully:** all three tests error with
-`UnsupportedOperationException` from `TeamService.createTeam`. They compile and
-run; the problem is unfinished business logic, not missing service classes.
+The original business-rule assertions are preserved. Service tests also cover
+feedback CRUD, all closed-retrospective mutations, membership, specific exceptions,
+input validation, combined filters, no-op transitions, and concurrent creation/closure.
 Do not skip tests or weaken their assertions to make CI green.
-
-The tests describe three required rules: closed retrospectives reject new
-feedback, a team cannot have two open retrospectives, and completed action items
-cannot be uncompleted.
 
 Surefire results are in `target/surefire-reports/`. JaCoCo attaches its agent
 during tests and normally generates reports and enforces **80% aggregate line
 coverage** during `verify`. This is not branch coverage or a per-class threshold.
-Test errors currently stop Maven before that reporting/check phase.
+Test errors stop Maven before that reporting/check phase.
 
 After a test run has produced `target/jacoco.exec`, generate a diagnostic report:
 
@@ -238,7 +276,7 @@ mvn jacoco:report
 
 Open `target/site/jacoco/index.html` in a browser; machine-readable coverage is in
 `target/site/jacoco/jacoco.xml`. Generating a report does not make failing tests pass
-or run the coverage gate. After implementing the services, rerun `mvn verify`.
+or run the coverage gate.
 
 ## Configuration and database
 
@@ -306,8 +344,8 @@ allow PR comments.
 The PR triggers and coverage comment filters target `master`, the repository's
 default branch. If the default branch is renamed, update both workflows together.
 
-The current service stubs keep CI red. Require trusted review of workflow/build
-changes and a passing CI job before merging completed implementation work.
+Require trusted review of workflow/build changes and a passing CI job before
+merging implementation work.
 Coverage comments are informational: PR-controlled code can alter its report.
 Actions use commit-SHA pins; keep them and Maven dependencies updated.
 
@@ -319,7 +357,7 @@ Actions use commit-SHA pins; keep them and Maven dependencies updated.
 | `src/main/java/com/stackcraft/retroflow/RetroflowApplication.java` | Application entry point |
 | `src/main/java/com/stackcraft/retroflow/controller/` | HTTP routes |
 | `src/main/java/com/stackcraft/retroflow/dto/` | Request validation and response records |
-| `src/main/java/com/stackcraft/retroflow/service/` | Unimplemented business operations |
+| `src/main/java/com/stackcraft/retroflow/service/` | Transactional business operations and rule enforcement |
 | `src/main/java/com/stackcraft/retroflow/entity/` | JPA entities, relationships, and enums |
 | `src/main/java/com/stackcraft/retroflow/repository/` | Spring Data repositories |
 | `src/main/java/com/stackcraft/retroflow/web/` | Global exception handling |
@@ -337,7 +375,7 @@ Actions use commit-SHA pins; keep them and Maven dependencies updated.
 | Port 8080 is occupied | Stop your own existing instance or use the alternate-port configuration above. |
 | Container name `retroflow` already exists | Inspect it before stopping it; do not delete someone else's container. |
 | Native build uses the wrong Java release | Check both `java -version` and `mvn --version`, plus the IDE Maven JVM. |
-| HTTP 500 on a valid business request | Service methods are still unimplemented; inspect application logs. |
+| HTTP 409 on a business request | Read the specific rule-violation message in the response. |
 | HTTP 404 at `/` or `/swagger-ui` | No frontend or Swagger UI is configured. |
 | H2 console is missing in Docker | It is intentionally disabled; use a local Maven/IDE run for database inspection. |
 | Data disappears on restart | Expected for in-memory H2, even when the container is restarted. |
