@@ -16,7 +16,9 @@ public class ActionItem extends FeedbackItem {
     @Column(length = 20)
     private ActionPriority priority;
 
-    @Column(nullable = false)
+    // TODO
+    // Regular feedback rows share this table but have no completion state.
+    @Column(nullable = true)
     private boolean completed = false;
 
     public ActionItem() {

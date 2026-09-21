@@ -1,6 +1,7 @@
 package com.stackcraft.retroflow.web;
 
 import com.stackcraft.retroflow.dto.ApiError;
+import com.stackcraft.retroflow.exception.InvalidInputException;
 import com.stackcraft.retroflow.exception.ResourceNotFoundException;
 import com.stackcraft.retroflow.exception.RetroflowException;
 import jakarta.validation.ConstraintViolationException;
@@ -29,6 +30,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(RetroflowException.class)
     public ResponseEntity<ApiError> handleBusinessRuleViolation(RetroflowException ex) {
         return build(HttpStatus.CONFLICT, ex.getMessage());
+    }
+
+    @ExceptionHandler(InvalidInputException.class)
+    public ResponseEntity<ApiError> handleInvalidInput(InvalidInputException ex) {
+        return build(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
