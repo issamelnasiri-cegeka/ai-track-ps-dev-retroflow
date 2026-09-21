@@ -14,6 +14,14 @@ public record ApiError(
 
 ) {
 
+    /**
+     * Creates an API error with the current timestamp.
+     *
+     * @param status  the HTTP status code
+     * @param error   the HTTP status reason
+     * @param message the error detail
+     * @return the API error payload
+     */
     public static ApiError of(int status, String error, String message) {
         return new ApiError(Instant.now(), status, error, message);
     }

@@ -49,34 +49,42 @@ public class Team {
         this.retrospectives = retrospectives;
     }
 
+    /** @return the team identifier */
     public Long getId() {
         return id;
     }
 
+    /** @param id the team identifier */
     public void setId(Long id) {
         this.id = id;
     }
 
+    /** @return the team name */
     public String getName() {
         return name;
     }
 
+    /** @param name the team name */
     public void setName(String name) {
         this.name = name;
     }
 
+    /** @return the team member names */
     public Set<String> getMembers() {
         return members;
     }
 
+    /** @param members the team member names */
     public void setMembers(Set<String> members) {
         this.members = members;
     }
 
+    /** @return the team's retrospectives */
     public Set<Retrospective> getRetrospectives() {
         return retrospectives;
     }
 
+    /** @param retrospectives the team's retrospectives */
     public void setRetrospectives(Set<Retrospective> retrospectives) {
         this.retrospectives = retrospectives;
     }

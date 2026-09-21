@@ -5,14 +5,15 @@ import com.stackcraft.retroflow.exception.ResourceNotFoundException;
 import com.stackcraft.retroflow.exception.RetroflowException;
 import com.stackcraft.retroflow.repository.TeamRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashSet;
 import java.util.List;
 
 /**
  * Service layer for team management.
  *
- * STUB — method signatures only. Business logic (persistence, invariant
- * enforcement, etc.) will be implemented separately.
+ * Enforces team business rules and coordinates team persistence.
  */
 @Service
 public class TeamService {
@@ -32,8 +33,18 @@ public class TeamService {
      * @throws RetroflowException if a business rule is violated (e.g. a team
      *                            with the same name already exists)
      */
+    @Transactional
     public Team createTeam(String name, List<String> members) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        boolean nameExists = teamRepository.findAll().stream()
+                .anyMatch(team -> team.getName().equalsIgnoreCase(name));
+        if (nameExists) {
+            throw new RetroflowException("[Team] [" + name + "]: already exists");
+        }
+
+        Team team = new Team();
+        team.setName(name);
+        team.setMembers(new HashSet<>(members));
+        return teamRepository.save(team);
     }
 
     /**
@@ -44,7 +55,8 @@ public class TeamService {
      * @throws ResourceNotFoundException if no team exists with the given id
      */
     public Team getTeamById(Long id) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        return teamRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("[Team] [" + id + "]: not found"));
     }
 
 }

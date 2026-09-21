@@ -29,18 +29,22 @@ public class ActionItem extends FeedbackItem {
         this.completed = completed;
     }
 
+    /** @return the action priority */
     public ActionPriority getPriority() {
         return priority;
     }
 
+    /** @param priority the action priority */
     public void setPriority(ActionPriority priority) {
         this.priority = priority;
     }
 
+    /** @return whether the action is completed */
     public boolean isCompleted() {
         return completed;
     }
 
+    /** @param completed whether the action is completed */
     public void setCompleted(boolean completed) {
         this.completed = completed;
     }

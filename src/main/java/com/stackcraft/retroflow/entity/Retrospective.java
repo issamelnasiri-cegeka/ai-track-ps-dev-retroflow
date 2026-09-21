@@ -61,50 +61,62 @@ public class Retrospective {
         this.feedbackItems = feedbackItems;
     }
 
+    /** @return the retrospective identifier */
     public Long getId() {
         return id;
     }
 
+    /** @param id the retrospective identifier */
     public void setId(Long id) {
         this.id = id;
     }
 
+    /** @return the retrospective title */
     public String getTitle() {
         return title;
     }
 
+    /** @param title the retrospective title */
     public void setTitle(String title) {
         this.title = title;
     }
 
+    /** @return the retrospective date */
     public LocalDate getDate() {
         return date;
     }
 
+    /** @param date the retrospective date */
     public void setDate(LocalDate date) {
         this.date = date;
     }
 
+    /** @return the retrospective status */
     public RetrospectiveStatus getStatus() {
         return status;
     }
 
+    /** @param status the retrospective status */
     public void setStatus(RetrospectiveStatus status) {
         this.status = status;
     }
 
+    /** @return the owning team */
     public Team getTeam() {
         return team;
     }
 
+    /** @param team the owning team */
     public void setTeam(Team team) {
         this.team = team;
     }
 
+    /** @return the retrospective feedback items */
     public Set<FeedbackItem> getFeedbackItems() {
         return feedbackItems;
     }
 
+    /** @param feedbackItems the retrospective feedback items */
     public void setFeedbackItems(Set<FeedbackItem> feedbackItems) {
         this.feedbackItems = feedbackItems;
     }

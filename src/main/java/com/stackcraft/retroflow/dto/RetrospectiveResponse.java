@@ -18,6 +18,12 @@ public record RetrospectiveResponse(
 
 ) {
 
+    /**
+     * Converts a retrospective entity to a response payload.
+     *
+     * @param retrospective the retrospective entity
+     * @return the retrospective response
+     */
     public static RetrospectiveResponse from(Retrospective retrospective) {
         return new RetrospectiveResponse(
                 retrospective.getId(),

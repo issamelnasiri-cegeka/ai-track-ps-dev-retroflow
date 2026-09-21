@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -33,6 +32,13 @@ public class RetrospectiveController {
         this.retrospectiveService = retrospectiveService;
     }
 
+    /**
+     * Creates a retrospective for a team.
+     *
+     * @param teamId  the team identifier
+     * @param request the retrospective creation request
+     * @return the created retrospective
+     */
     @PostMapping("/api/teams/{teamId}/retrospectives")
     public ResponseEntity<RetrospectiveResponse> createRetrospective(
             @PathVariable @Positive(message = "teamId must be positive") Long teamId,
@@ -41,6 +47,12 @@ public class RetrospectiveController {
         return ResponseEntity.status(HttpStatus.CREATED).body(RetrospectiveResponse.from(retrospective));
     }
 
+    /**
+     * Lists retrospectives for a team.
+     *
+     * @param teamId the team identifier
+     * @return the team's retrospectives
+     */
     @GetMapping("/api/teams/{teamId}/retrospectives")
     public ResponseEntity<List<RetrospectiveResponse>> listRetrospectives(
             @PathVariable @Positive(message = "teamId must be positive") Long teamId) {
@@ -50,6 +62,12 @@ public class RetrospectiveController {
         return ResponseEntity.ok(retrospectives);
     }
 
+    /**
+     * Closes a retrospective.
+     *
+     * @param id the retrospective identifier
+     * @return the closed retrospective
+     */
     @PutMapping("/api/retrospectives/{id}/close")
     public ResponseEntity<RetrospectiveResponse> closeRetrospective(
             @PathVariable @Positive(message = "id must be positive") Long id) {
