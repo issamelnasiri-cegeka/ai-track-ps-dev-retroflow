@@ -15,6 +15,8 @@ import static com.stackcraft.retroflow.service.ServiceValidation.requireText;
 
 /**
  * Service layer for team management.
+ *
+ * Enforces team business rules and coordinates team persistence.
  */
 @Service
 @Transactional(readOnly = true)

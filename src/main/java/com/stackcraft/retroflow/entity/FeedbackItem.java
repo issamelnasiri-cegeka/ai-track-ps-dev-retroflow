@@ -61,42 +61,52 @@ public class FeedbackItem {
         this.retrospective = retrospective;
     }
 
+    /** @return the feedback item identifier */
     public Long getId() {
         return id;
     }
 
+    /** @param id the feedback item identifier */
     public void setId(Long id) {
         this.id = id;
     }
 
+    /** @return the feedback content */
     public String getContent() {
         return content;
     }
 
+    /** @param content the feedback content */
     public void setContent(String content) {
         this.content = content;
     }
 
+    /** @return the feedback type */
     public FeedbackType getType() {
         return type;
     }
 
+    /** @param type the feedback type */
     public void setType(FeedbackType type) {
         this.type = type;
     }
 
+    /** @return the submitting member */
     public String getSubmittedBy() {
         return submittedBy;
     }
 
+    /** @param submittedBy the submitting member */
     public void setSubmittedBy(String submittedBy) {
         this.submittedBy = submittedBy;
     }
 
+    /** @return the owning retrospective */
     public Retrospective getRetrospective() {
         return retrospective;
     }
 
+    /** @param retrospective the owning retrospective */
     public void setRetrospective(Retrospective retrospective) {
         this.retrospective = retrospective;
     }

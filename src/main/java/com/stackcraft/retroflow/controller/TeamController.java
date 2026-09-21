@@ -31,12 +31,24 @@ public class TeamController {
         this.teamService = teamService;
     }
 
+    /**
+     * Creates a team.
+     *
+     * @param request the team creation request
+     * @return the created team
+     */
     @PostMapping
     public ResponseEntity<TeamResponse> createTeam(@Valid @RequestBody TeamCreateRequest request) {
         Team team = teamService.createTeam(request.name(), request.members());
         return ResponseEntity.status(HttpStatus.CREATED).body(TeamResponse.from(team));
     }
 
+    /**
+     * Retrieves a team by identifier.
+     *
+     * @param id the team identifier
+     * @return the requested team
+     */
     @GetMapping("/{id}")
     public ResponseEntity<TeamResponse> getTeam(@PathVariable @Positive(message = "id must be positive") Long id) {
         Team team = teamService.getTeamById(id);

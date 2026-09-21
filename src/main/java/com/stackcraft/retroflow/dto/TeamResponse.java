@@ -16,6 +16,12 @@ public record TeamResponse(
 
 ) {
 
+    /**
+     * Converts a team entity to a response payload.
+     *
+     * @param team the team entity
+     * @return the team response
+     */
     public static TeamResponse from(Team team) {
         return new TeamResponse(
                 team.getId(),

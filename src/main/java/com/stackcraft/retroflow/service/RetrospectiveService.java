@@ -30,6 +30,8 @@ import static com.stackcraft.retroflow.service.ServiceValidation.requireText;
 
 /**
  * Service layer for retrospectives and their feedback/action items.
+ *
+ * Enforces retrospective business rules and coordinates persistence.
  */
 @Service
 @Transactional(readOnly = true)
@@ -54,7 +56,7 @@ public class RetrospectiveService {
      * Creates a new retrospective for the given team.
      *
      * @param teamId the id of the team the retrospective belongs to
-     * @param title  the retrospective's title
+     * @param title the retrospective's title
      * @return the created retrospective
      * @throws ResourceNotFoundException if no team exists with the given id
      * @throws OpenRetrospectiveExistsException if the team already has an OPEN retrospective
@@ -64,7 +66,6 @@ public class RetrospectiveService {
         requireId(teamId, "teamId");
         requireText(title, "title", 200);
 
-        // Lock the team even when it has no retrospectives, serializing concurrent creates.
         Team team = teamRepository.findByIdForUpdate(teamId)
                 .orElseThrow(() -> new ResourceNotFoundException("Team " + teamId + " not found"));
         if (retrospectiveRepository.existsByTeamIdAndStatus(teamId, RetrospectiveStatus.OPEN)) {
@@ -126,6 +127,8 @@ public class RetrospectiveService {
     /**
      * Returns an already-open retrospective unchanged; never reopens a closed one.
      *
+     * @param id the retrospective id
+     * @return the open retrospective
      * @throws RetrospectiveReopeningNotAllowedException if the retrospective is closed
      */
     public Retrospective reopenRetrospective(Long id) {
@@ -140,14 +143,10 @@ public class RetrospectiveService {
      * Adds a feedback item to a retrospective.
      *
      * @param retrospectiveId the retrospective id
-     * @param content         the feedback content
-     * @param type            the feedback type (e.g. WENT_WELL, NEEDS_IMPROVEMENT)
-     * @param submittedBy     the name of the member submitting the feedback
+     * @param content the feedback content
+     * @param type the feedback type
+     * @param submittedBy the submitting member
      * @return the created feedback item
-     * @throws ResourceNotFoundException if no retrospective exists with the given id
-     * @throws RetrospectiveClosedException if the retrospective is closed
-     * @throws SubmitterNotTeamMemberException if the submitter is not a team member
-     * @throws InvalidFeedbackTypeException if the type is invalid or requires an action item
      */
     @Transactional
     public FeedbackItem addFeedbackItem(Long retrospectiveId, String content, String type, String submittedBy) {
@@ -170,14 +169,10 @@ public class RetrospectiveService {
      * Adds an action item to a retrospective.
      *
      * @param retrospectiveId the retrospective id
-     * @param content         the action item description
-     * @param priority        the action item priority (LOW, MEDIUM, HIGH)
-     * @param submittedBy     the name of the member submitting the action item
+     * @param content the action item description
+     * @param priority the action item priority
+     * @param submittedBy the submitting member
      * @return the created action item
-     * @throws ResourceNotFoundException if no retrospective exists with the given id
-     * @throws RetrospectiveClosedException if the retrospective is closed
-     * @throws SubmitterNotTeamMemberException if the submitter is not a team member
-     * @throws InvalidActionPriorityException if the priority is invalid
      */
     @Transactional
     public ActionItem addActionItem(Long retrospectiveId, String content, String priority, String submittedBy) {
@@ -198,27 +193,20 @@ public class RetrospectiveService {
         return actionItemRepository.save(item);
     }
 
-    /**
-     * Retrieves all feedback, including action items, even after closure.
-     */
+    /** Retrieves all feedback, including action items, for a retrospective. */
     public List<FeedbackItem> getFeedbackItemsForRetrospective(Long retrospectiveId) {
         getRetrospectiveById(retrospectiveId);
         return feedbackItemRepository.findByRetrospectiveIdOrderByIdAsc(retrospectiveId);
     }
 
-    /**
-     * Filters action items within a retrospective. Null filters are omitted;
-     * when both are supplied, both must match. Closed retrospectives remain readable.
-     */
+    /** Filters action items by optional priority and completion status. */
     public List<ActionItem> getActionItems(Long retrospectiveId, String priority, Boolean completed) {
         ActionPriority actionPriority = priority == null ? null : parsePriority(priority);
         getRetrospectiveById(retrospectiveId);
         return actionItemRepository.findActionItems(retrospectiveId, actionPriority, completed);
     }
 
-    /**
-     * Updates content without changing type, submitter, or action completion state.
-     */
+    /** Updates feedback content without changing its type or submitter. */
     @Transactional
     public FeedbackItem updateFeedbackItem(Long feedbackItemId, String content) {
         requireText(content, "content", 5000);
@@ -228,9 +216,7 @@ public class RetrospectiveService {
         return feedbackItemRepository.save(item);
     }
 
-    /**
-     * Updates action content and priority without changing its completion state.
-     */
+    /** Updates action content and priority without changing completion state. */
     @Transactional
     public ActionItem updateActionItem(Long actionItemId, String content, String priority) {
         requireText(content, "content", 5000);
@@ -242,9 +228,7 @@ public class RetrospectiveService {
         return actionItemRepository.save(item);
     }
 
-    /**
-     * Deletes either a regular feedback item or an action item from an open retrospective.
-     */
+    /** Deletes a feedback or action item from an open retrospective. */
     @Transactional
     public void deleteFeedbackItem(Long feedbackItemId) {
         FeedbackItem item = getFeedbackItemForUpdate(feedbackItemId);
@@ -253,12 +237,10 @@ public class RetrospectiveService {
     }
 
     /**
-     * Marks an action item as completed, or returns it unchanged if already completed.
+     * Marks an action item as completed, returning it unchanged if already completed.
      *
      * @param actionItemId the action item id
      * @return the updated action item
-     * @throws ResourceNotFoundException if no action item exists with the given id
-     * @throws RetrospectiveClosedException if the retrospective is closed
      */
     @Transactional
     public ActionItem completeActionItem(Long actionItemId) {
@@ -275,10 +257,7 @@ public class RetrospectiveService {
      * Returns an incomplete action item unchanged; never uncompletes a completed one.
      *
      * @param actionItemId the action item id
-     * @return the updated action item
-     * @throws ResourceNotFoundException if no action item exists with the given id
-     * @throws ActionItemUncompletionNotAllowedException if the action item is already completed
-     * @throws RetrospectiveClosedException if the retrospective is closed
+     * @return the action item
      */
     @Transactional
     public ActionItem uncompleteActionItem(Long actionItemId) {
@@ -298,7 +277,6 @@ public class RetrospectiveService {
 
     private FeedbackItem getFeedbackItemForUpdate(Long id) {
         requireId(id, "feedbackItemId");
-        // Load only the parent ID first: item state must be read after acquiring the parent lock.
         Long retrospectiveId = feedbackItemRepository.findRetrospectiveIdById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Feedback item " + id + " not found"));
         getRetrospectiveForUpdate(retrospectiveId);
@@ -344,5 +322,4 @@ public class RetrospectiveService {
             case null, default -> throw new InvalidActionPriorityException(priority);
         };
     }
-
 }
