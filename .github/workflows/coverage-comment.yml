@@ -38,13 +38,13 @@ jobs:
             );
             const prs = candidates.filter(pr =>
               pr.state === 'open' &&
-              pr.base.ref === 'main' &&
+              pr.base.ref === 'master' &&
               pr.base.repo.id === repository.id &&
               pr.head.repo?.id === run.head_repository?.id &&
               pr.head.sha === run.head_sha
             );
             if (prs.length === 0) {
-              core.notice('No open PR to main matches this run and current head SHA.');
+              core.notice('No open PR to master matches this run and current head SHA.');
               return;
             }
             core.setOutput('prs', JSON.stringify(prs.map(pr => pr.number)));
@@ -140,7 +140,7 @@ jobs:
               const { data: pr } = await github.rest.pulls.get({
                 ...context.repo, pull_number: number
               });
-              if (pr.state !== 'open' || pr.head.sha !== run.head_sha || pr.base.ref !== 'main') {
+              if (pr.state !== 'open' || pr.head.sha !== run.head_sha || pr.base.ref !== 'master') {
                 core.notice(`Skipping PR #${number}: its state or head changed.`);
                 continue;
               }

@@ -293,7 +293,7 @@ schema migrations, TLS termination, and secret management are not configured.
 ## CI
 
 [Maven CI](.github/workflows/ci.yml) runs on every branch push and on PRs targeting
-`main`, using Ubuntu, Temurin Java 21, Maven caching, and the verification command
+`master`, using Ubuntu, Temurin Java 21, Maven caching, and the verification command
 above. It also rejects a successful Maven run with no coverage report.
 
 The [coverage commenter](.github/workflows/coverage-comment.yml) runs separately
@@ -303,10 +303,8 @@ that produced execution data; otherwise it states that coverage is unavailable.
 The commenter must be present on the default branch and repository policy must
 allow PR comments.
 
-**Branch configuration caveat:** the remote default branch is currently `master`,
-but the PR triggers and comment filters target `main`. Push CI still runs on
-`master`; PRs targeting `master` do not receive this PR coverage flow. Align the
-branch strategy before relying on it.
+The PR triggers and coverage comment filters target `master`, the repository's
+default branch. If the default branch is renamed, update both workflows together.
 
 The current service stubs keep CI red. Require trusted review of workflow/build
 changes and a passing CI job before merging completed implementation work.

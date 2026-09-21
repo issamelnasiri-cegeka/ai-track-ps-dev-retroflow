@@ -4,7 +4,7 @@ on:
   push:
     branches: ['**']
   pull_request:
-    branches: [main]
+    branches: [master]
 
 permissions:
   contents: read
@@ -51,4 +51,3 @@ jobs:
           path: target/site/jacoco/jacoco.xml
           if-no-files-found: error
           retention-days: 7
-
