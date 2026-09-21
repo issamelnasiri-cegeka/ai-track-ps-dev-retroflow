@@ -236,11 +236,13 @@ and `NEEDS_IMPROVEMENT`; use `addActionItem` for `ACTION_ITEM` so a priority is
 always supplied. Type and submitter cannot be edited.
 
 Specific business exceptions extend `RetroflowException`:
-`TeamMustHaveMembersException`, `OpenRetrospectiveExistsException`,
+`OpenRetrospectiveExistsException`,
 `RetrospectiveClosedException`, `RetrospectiveReopeningNotAllowedException`,
 `ActionItemUncompletionNotAllowedException`, and `SubmitterNotTeamMemberException`.
 Invalid text/IDs use `InvalidInputException`; invalid enums use its
 `InvalidFeedbackTypeException` and `InvalidActionPriorityException` subtypes.
+Missing team members use `TeamMustHaveMembersException`, also an
+`InvalidInputException` subtype, so this failure maps to HTTP 400 rather than 409.
 Missing resources (including a regular feedback ID used as an action ID) use
 `ResourceNotFoundException`.
 
@@ -258,10 +260,15 @@ For a shorter feedback loop focused on service behavior:
 mvn -Dtest=RetroflowBusinessRulesTest,ServiceLayerTest test
 ```
 
-The original business-rule assertions are preserved. Service tests also cover
+The original business-rule expectations are preserved. Service tests also cover
 feedback CRUD, all closed-retrospective mutations, membership, specific exceptions,
 input validation, combined filters, no-op transitions, and concurrent creation/closure.
 Do not skip tests or weaken their assertions to make CI green.
+
+Tests use JUnit 5, AssertJ, and `@SpringBootTest`, with explicit `Arrange`, `Act`,
+and `Assert` comments. Capture results or exceptions in the Act section, then
+assert them separately. HTTP tests use MockMvc to make requests and AssertJ to
+check responses; concurrency scenarios live in `ServiceConcurrencyTest`.
 
 Surefire results are in `target/surefire-reports/`. JaCoCo attaches its agent
 during tests and normally generates reports and enforces **80% aggregate line
