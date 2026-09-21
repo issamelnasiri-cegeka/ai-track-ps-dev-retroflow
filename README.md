@@ -27,8 +27,49 @@ replace the mix of sticky notes, Miro boards, and shared Google Docs used to run
    `RetrospectiveService`, which do not exist yet. This command includes test compilation
    and is blocked until those services and the methods required by the tests are implemented.
 
-4. After startup, the server uses http://localhost:8080 by default. No REST endpoints
-   are implemented yet, so this is not currently a usable API.
+4. After startup, the server uses http://localhost:8080 by default. No business REST
+   endpoints are implemented yet. Actuator exposes `/actuator/health` without health
+   details or component information; other Actuator endpoints are not exposed over HTTP.
+
+## Docker
+
+Build and run with Docker using BuildKit:
+
+```sh
+docker build -t retroflow:local .
+docker run --rm --name retroflow -p 127.0.0.1:8080:8080 retroflow:local
+```
+
+The multi-stage build uses Maven and a Java 21 JDK to run
+`mvn package -DskipTests --batch-mode --no-transfer-progress`, then copies only the
+executable JAR into an Alpine-based Java 21 JRE image. The application runs as
+non-root UID/GID `10001`, and the JAR is read-only.
+
+Only `pom.xml` and `src/main` are copied as build inputs. This intentionally avoids
+the current test-compilation blocker: `-DskipTests` skips execution, not compilation.
+The existing tests are unchanged and must be fixed and run separately in CI; a
+successful image build is not evidence that the business rules are implemented.
+`.dockerignore` excludes unrelated files, including Git history, IDE files, local
+environment files, and host build output.
+
+The container disables the H2 console and enables graceful shutdown. Allow more
+than Spring's default 30-second shutdown-phase timeout when stopping it:
+
+```sh
+docker stop --timeout 40 retroflow
+```
+
+The image health check calls `/actuator/health` every 30 seconds, with a 60-second
+startup grace period and three retries before marking the container unhealthy.
+It includes database health, not just whether the port is listening. Docker records
+health status but does not automatically restart an unhealthy container.
+
+The image still uses in-memory H2 unless deployment configuration overrides it.
+Containerization does not make the application production-ready: persistent storage,
+schema migrations, authentication, and the unfinished business API remain separate
+work. A PostgreSQL deployment also requires adding its JDBC driver. Supply production
+configuration and secrets at deployment time, not in the image. Pin approved base
+images by digest and regularly rebuild them for security updates before deployment.
 
 ## Local database
 
@@ -71,7 +112,7 @@ These are specifications for unfinished functionality, not a passing test suite.
 Source code is under `src/main/java/com/stackcraft/retroflow`:
 
 - `RetroflowApplication.java`: Spring Boot entry point.
-- `controller/`: empty `RetroflowController`; no request mappings.
+- `controller/`: empty `RetroflowController`; no business request mappings.
 - `entity/`: `Team`, `Retrospective`, `FeedbackItem`, and `ActionItem` entity stubs.
 - `repository/`: Spring Data JPA repositories for teams, retrospectives, and feedback items.
 - `exception/`: `RetroflowException`; no global exception handler.
@@ -83,7 +124,7 @@ The service layer is not implemented. Application configuration is under
 
 This project is a scaffold, not a completed REST API. Each entity currently contains
 only an ID. Domain fields, relationships, transactional services, business-rule
-enforcement, request validation, REST endpoints, and consistent HTTP error handling
+enforcement, request validation, business REST endpoints, and consistent HTTP error handling
 remain to be implemented. Application-level authentication and authorization are
 not configured.
 
