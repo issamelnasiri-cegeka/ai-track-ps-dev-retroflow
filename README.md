@@ -1,165 +1,356 @@
 # RetroFlow
 
-Backend API under development for StackCraft's internal retrospective tool. Intended to
-replace the mix of sticky notes, Miro boards, and shared Google Docs used to run retros.
+Spring Boot backend for StackCraft's retrospective tool. The intended business
+rules are in the [project brief](docs/retroflow-brief.md).
 
-## Tech stack
+**Current status:** the application starts, H2 and health reporting work, and
+controllers validate requests. However, `TeamService` and `RetrospectiveService`
+still throw `UnsupportedOperationException`. Valid business requests return HTTP
+500, and the three business-rule tests error. This is an unfinished API, not a
+production-ready service.
 
-- Java 21
-- Spring Boot 3.3.4 with Spring MVC
-- Maven
-- Spring Data JPA / Hibernate
-- In-memory H2 database
-- Bean Validation dependency (request validation is not implemented yet)
+Stack: Java 21, Spring Boot 3.3.4, Maven, Spring MVC, Spring Data JPA/Hibernate,
+Bean Validation, Actuator, and in-memory H2. Tests use JUnit 5 and AssertJ.
 
-## Getting started
+## Getting Started
 
-1. Install JDK 21 and Maven. No Maven wrapper is included in this repository.
-2. Configuration is in `src/main/resources/application.properties`. No external database
-   or PostgreSQL setup is required.
-3. From the repository root, the standard startup command is:
+### From a fresh clone to a running application in under five minutes
+
+The quickest setup uses Docker: no local Java, Maven, PostgreSQL, database creation,
+or database credentials are required.
+
+Prerequisites:
+
+- Git and access to this repository.
+- A running Docker Desktop or Docker Engine with BuildKit.
+- `curl` 7.71 or newer for the startup retry command.
+- Port 8080 available locally.
+
+Examples use a POSIX-compatible shell: macOS/Linux, or Git Bash/WSL on Windows.
+Install prerequisites first. The five-minute target assumes a working internet
+connection; initial image and dependency downloads depend on network speed.
+
+1. Clone the repository and enter it:
 
    ```sh
-   mvn spring-boot:run
+   git clone https://github.com/issamelnasiri-cegeka/ai-track-ps-dev-retroflow.git
+   cd ai-track-ps-dev-retroflow
    ```
 
-   **Current blocker:** the existing test source references `TeamService` and
-   `RetrospectiveService`, which do not exist yet. This command includes test compilation
-   and is blocked until those services and the methods required by the tests are implemented.
+2. Build and start the application:
 
-4. After startup, the server uses http://localhost:8080 by default. No business REST
-   endpoints are implemented yet. Actuator exposes `/actuator/health` without health
-   details or component information; other Actuator endpoints are not exposed over HTTP.
+   ```sh
+   docker build --tag retroflow:local .
+   docker run --detach --rm --name retroflow \
+     --publish 127.0.0.1:8080:8080 retroflow:local
+   ```
 
-## Docker
+3. Wait for startup and check the health endpoint:
 
-Build and run with Docker using BuildKit:
+   ```sh
+   curl --fail --silent --show-error \
+     --retry 30 --retry-all-errors --retry-delay 1 \
+     --retry-max-time 60 --max-time 3 \
+     http://localhost:8080/actuator/health
+   ```
 
-```sh
-docker build -t retroflow:local .
-docker run --rm --name retroflow -p 127.0.0.1:8080:8080 retroflow:local
-```
+   Expected response: `{"status":"UP"}`. Brief connection errors while Java starts
+   are retried. This confirms application/database health, not that business
+   operations are implemented. There is no frontend at `/`; HTTP 404 there is normal.
 
-The multi-stage build uses Maven and a Java 21 JDK to run
-`mvn package -DskipTests --batch-mode --no-transfer-progress`, then copies only the
-executable JAR into an Alpine-based Java 21 JRE image. The application runs as
-non-root UID/GID `10001`, and the JAR is read-only.
+The application is now listening at `http://localhost:8080`. Try the requests in
+[Manual API testing](#manual-api-testing).
 
-Only `pom.xml` and `src/main` are copied as build inputs. This intentionally avoids
-the current test-compilation blocker: `-DskipTests` skips execution, not compilation.
-The existing tests are unchanged and must be fixed and run separately in CI; a
-successful image build is not evidence that the business rules are implemented.
-`.dockerignore` excludes unrelated files, including Git history, IDE files, local
-environment files, and host build output.
-
-The container disables the H2 console and enables graceful shutdown. Allow more
-than Spring's default 30-second shutdown-phase timeout when stopping it:
+Useful container commands:
 
 ```sh
+docker logs --tail 50 retroflow
+docker inspect --format '{{.State.Health.Status}}' retroflow
 docker stop --timeout 40 retroflow
 ```
 
-The image health check calls `/actuator/health` every 30 seconds, with a 60-second
-startup grace period and three retries before marking the container unhealthy.
-It includes database health, not just whether the port is listening. Docker records
-health status but does not automatically restart an unhealthy container.
+The health status can remain `starting` until the first scheduled probe. The
+40-second stop timeout allows graceful shutdown; `--rm` removes the stopped
+container. Stopping the application discards its in-memory data.
 
-The image still uses in-memory H2 unless deployment configuration overrides it.
-Containerization does not make the application production-ready: persistent storage,
-schema migrations, authentication, and the unfinished business API remain separate
-work. A PostgreSQL deployment also requires adding its JDBC driver. Supply production
-configuration and secrets at deployment time, not in the image. Pin approved base
-images by digest and regularly rebuild them for security updates before deployment.
+## Local development without Docker
 
-## Local database
-
-The checked-in configuration uses H2 with these connection settings:
-
-| Setting | Value |
-| --- | --- |
-| JDBC URL | `jdbc:h2:mem:retroflow;DB_CLOSE_DELAY=-1` |
-| Driver | `org.h2.Driver` |
-| Username | `sa` |
-| Password | Empty |
-
-Data is held in memory and is lost when the application stops. `DB_CLOSE_DELAY=-1`
-keeps the database alive when connections close within the same JVM; it does not
-preserve data across restarts.
-
-Hibernate manages the schema with `spring.jpa.hibernate.ddl-auto=update`.
-Direct Hibernate SQL printing is disabled with `spring.jpa.show-sql=false`.
-
-The H2 web console is enabled at http://localhost:8080/h2-console after startup.
-Use the connection settings above to log in.
-
-These are local development settings, not a production-ready configuration.
-
-## Running tests
+Install **JDK 21** (Temurin recommended) and **Maven 3.9.x**. No Maven wrapper is
+currently checked in. Confirm both the compiler/runtime selection and Maven's JVM:
 
 ```sh
-mvn test
+java -version
+mvn --version
 ```
 
-`RetroflowBusinessRulesTest` describes three intended business rules: closed
-retrospectives reject new feedback, a team cannot have two open retrospectives,
-and completed action items cannot be uncompleted.
+Both should report Java 21. If they disagree, correct `JAVA_HOME`, `PATH`, and the
+IDE's Maven JVM selection. Do not rely on whichever JDK happens to be installed.
 
-The test source currently cannot compile because the required services are missing.
-These are specifications for unfinished functionality, not a passing test suite.
+From the repository root:
 
-## Continuous integration and coverage
+```sh
+mvn spring-boot:run
+```
 
-`.github/workflows/ci.yml` runs on pushes to every branch and pull requests targeting
-`main`. It uses an Ubuntu runner, Temurin Java 21, and a Maven dependency cache keyed
-by `pom.xml`. It runs:
+Wait for the `Started RetroflowApplication` log, then use the same health and API
+requests as for Docker. Stop with Ctrl+C. This command compiles test sources but
+does not run tests, so the current business-rule test errors do not block startup.
+No test-skip option is needed.
+
+If Docker or another application already uses port 8080:
+
+```sh
+mvn spring-boot:run -Dspring-boot.run.arguments=--server.port=8081
+```
+
+Use `http://localhost:8081` for that instance. Each application process has its own
+in-memory database.
+
+### IDE setup and the edit/run loop
+
+| IDE | Configuration |
+| --- | --- |
+| IntelliJ IDEA | Open `pom.xml` as a Maven project. Set Project SDK, language level, and Maven runner/importer JVM to Java 21. |
+| VS Code | Open the repository folder, install Extension Pack for Java, and select JDK 21 as the project runtime. The Spring Boot Extension Pack is optional. |
+
+Run or debug `com.stackcraft.retroflow.RetroflowApplication` with the repository
+root as the working directory. In an IDE application configuration, `--server.port=8081`
+is a **program argument**, not a JVM option. Put breakpoints in the controllers or
+services to inspect a request.
+
+For the fastest loop, run directly through Maven or the IDE instead of rebuilding
+the Docker image after every edit. Restart the application after source changes;
+Spring Boot DevTools and automatic restart are **not** configured. IDE HotSwap can
+handle some method-body changes while debugging, but structural changes may need
+a restart.
+
+Keep `.idea/`, `.vscode/`, and machine-specific run settings local. Docker's
+allowlist excludes root-level IDE files. Git already ignores IntelliJ files; do
+not assume it ignores every editor's settings.
+
+## Manual API testing
+
+No authentication is configured. Keep the application on a trusted development
+machine; the Docker quickstart publishes only to localhost.
+
+### Routes that exist today
+
+| Method | Path | Current behavior |
+| --- | --- | --- |
+| GET | `/actuator/health` | HTTP 200 with `{"status":"UP"}` when healthy |
+| POST | `/api/teams` | Validates input; valid requests reach an unimplemented service and return HTTP 500 |
+| GET | `/api/teams/{id}` | Requires a positive ID; otherwise reaches the service stub |
+| POST | `/api/teams/{teamId}/retrospectives` | Validates ID/title; otherwise reaches the service stub |
+| GET | `/api/teams/{teamId}/retrospectives` | Requires a positive team ID; otherwise reaches the service stub |
+| PUT | `/api/retrospectives/{id}/close` | Requires a positive ID; otherwise reaches the service stub |
+
+There are no feedback/action-item HTTP routes, Swagger UI, or OpenAPI endpoint yet.
+`RetroflowController` is a leftover empty placeholder; the actual routes are in
+`TeamController` and `RetrospectiveController`.
+
+### Check request validation
+
+This intentionally invalid request should return **HTTP 400**, with messages
+explaining that a name and at least one member are required:
+
+```sh
+curl --include --request POST http://localhost:8080/api/teams \
+  --header 'Content-Type: application/json' \
+  --data '{"name":"","members":[]}'
+```
+
+A representative response body is below; the timestamp and message ordering vary:
+
+```json
+{
+  "timestamp": "2026-09-21T09:22:25Z",
+  "status": 400,
+  "error": "Bad Request",
+  "message": "name: name must not be blank; members: members must contain at least one name"
+}
+```
+
+Path parameters are validated too:
+
+```sh
+curl --include http://localhost:8080/api/teams/0
+```
+
+Expected: **HTTP 400**, with an `id must be positive` message.
+
+### Exercise the current implementation boundary
+
+This payload satisfies request validation:
+
+```sh
+curl --include --request POST http://localhost:8080/api/teams \
+  --header 'Content-Type: application/json' \
+  --data '{"name":"Platform","members":["Alice","Bob"]}'
+```
+
+**Current result: HTTP 500**, because `TeamService.createTeam` is not implemented.
+Once implemented, the controller is designed to return HTTP 201 and a team response
+with `id`, `name`, and `members`. Do not assume a team was created or that ID 1 exists.
+
+Team/member names must be nonblank and at most 100 characters; a team needs at
+least one member. Retrospective creation accepts `{"title":"Sprint 1"}` with a
+nonblank title of at most 200 characters.
+
+The global handler maps validation errors to 400, missing-resource exceptions to
+404, and business-rule exceptions to 409. The current unimplemented-service 500s
+use Spring Boot's default error response instead of that custom error format.
+You can import the curl commands into Postman or run equivalent requests in an IDE
+HTTP client; no account, API key, or seed data is needed.
+
+## Tests and coverage
+
+Run the same lifecycle used by CI:
 
 ```sh
 mvn verify --batch-mode --no-transfer-progress
 ```
 
-JaCoCo instruments tests, writes HTML and XML reports to `target/site/jacoco`, and
-fails `verify` if aggregate line coverage is below 80%. This is a project-wide line
-coverage requirement, not branch coverage or an 80% requirement for each class.
-CI also fails if a successful Maven run produces no coverage report.
+For a shorter feedback loop focused on the existing test class:
 
-PR runs upload the XML report even when the coverage gate fails. A separate
-`coverage-comment.yml` workflow posts the percentage on the matching PR, or states
-that coverage is unavailable if compilation failed before a report could be generated.
-It runs from the default branch, never checks out PR code or restores build caches,
-and has only artifact-read and PR-comment permissions. This separation supports fork
-PRs without giving their build jobs write credentials or repository secrets.
-The comment workflow must exist on the repository's default branch before it can run.
-Repository and organization policies must permit Actions to comment on PRs.
+```sh
+mvn -Dtest=RetroflowBusinessRulesTest test
+```
 
-Comments are informational, not a security boundary: PR code can alter its own
-coverage output. Require the `Verify and enforce coverage` check through branch
-protection, and require trusted review of workflow, build, and test changes.
-Actions are pinned to commit SHAs; keep those pins and Maven dependencies updated.
+**Both commands currently exit unsuccessfully:** all three tests error with
+`UnsupportedOperationException` from `TeamService.createTeam`. They compile and
+run; the problem is unfinished business logic, not missing service classes.
+Do not skip tests or weaken their assertions to make CI green.
 
-The existing missing-service compilation blocker also affects CI. Neither tests nor
-the coverage requirement are bypassed by this workflow.
+The tests describe three required rules: closed retrospectives reject new
+feedback, a team cannot have two open retrospectives, and completed action items
+cannot be uncompleted.
 
-## Project structure
+Surefire results are in `target/surefire-reports/`. JaCoCo attaches its agent
+during tests and normally generates reports and enforces **80% aggregate line
+coverage** during `verify`. This is not branch coverage or a per-class threshold.
+Test errors currently stop Maven before that reporting/check phase.
 
-Source code is under `src/main/java/com/stackcraft/retroflow`:
+After a test run has produced `target/jacoco.exec`, generate a diagnostic report:
 
-- `RetroflowApplication.java`: Spring Boot entry point.
-- `controller/`: empty `RetroflowController`; no business request mappings.
-- `entity/`: `Team`, `Retrospective`, `FeedbackItem`, and `ActionItem` entity stubs.
-- `repository/`: Spring Data JPA repositories for teams, retrospectives, and feedback items.
-- `exception/`: `RetroflowException`; no global exception handler.
+```sh
+mvn jacoco:report
+```
 
-The service layer is not implemented. Application configuration is under
-`src/main/resources`, and the business-rule test source is under `src/test/java`.
+Open `target/site/jacoco/index.html` in a browser; machine-readable coverage is in
+`target/site/jacoco/jacoco.xml`. Generating a report does not make failing tests pass
+or run the coverage gate. After implementing the services, rerun `mvn verify`.
 
-## Current status
+## Configuration and database
 
-This project is a scaffold, not a completed REST API. Each entity currently contains
-only an ID. Domain fields, relationships, transactional services, business-rule
-enforcement, request validation, business REST endpoints, and consistent HTTP error handling
-remain to be implemented. Application-level authentication and authorization are
-not configured.
+The configuration file is
+[`src/main/resources/application.properties`](src/main/resources/application.properties),
+not `application.yml`.
 
-## Contact
+| Setting | Checked-in behavior |
+| --- | --- |
+| Application / default port | `retroflow` / `8080` |
+| Database | In-memory H2; no external database |
+| JDBC URL | `jdbc:h2:mem:retroflow;DB_CLOSE_DELAY=-1` |
+| Driver / username / password | `org.h2.Driver` / `sa` / empty |
+| Schema | Hibernate `ddl-auto=update`; no migration tool |
+| SQL printing | `spring.jpa.show-sql=false` |
+| H2 console | Enabled for direct Maven/IDE runs; disabled in the Docker image |
+| Actuator HTTP exposure | Health only, without diagnostic details or component names |
 
-For project questions, use #retroflow-support on Slack.
+For a direct Maven/IDE run, open `http://localhost:8080/h2-console/` and use the
+connection settings above. The console must connect to the same application;
+another process using that JDBC URL gets a different in-memory database.
+`DB_CLOSE_DELAY=-1` keeps the database alive between connections in the same JVM,
+not across application restarts. There is no seed-data script.
+
+Spring Boot accepts environment overrides such as `SERVER_PORT` and
+`SPRING_DATASOURCE_URL`; it does **not** automatically load a local `.env` file.
+Do not commit credentials. PostgreSQL is not configured and its JDBC driver is
+not included.
+
+## Docker behavior
+
+The multi-stage image builds with Maven and a Java 21 JDK, then runs the executable
+JAR on an Alpine-based Java 21 JRE as UID/GID `10001`. The JAR is read-only. The
+container disables the H2 console and enables graceful shutdown.
+
+The build copies only `pom.xml` and `src/main` and runs
+`mvn package -DskipTests --batch-mode --no-transfer-progress`. It deliberately does
+not include or run the tests. A successful image build is not a successful
+verification of the application. In a full checkout, `-DskipTests` skips execution,
+not test compilation.
+
+The image probes `/actuator/health` every 30 seconds, with a 60-second startup
+grace period and three retries. Docker records an unhealthy status but does not
+automatically restart an unhealthy container. To use a different host port, change
+the publish mapping to `127.0.0.1:8081:8080`; keep the container port at 8080 so its
+health check still works. After changing code, stop, rebuild, and rerun the
+quickstart container.
+
+This is not a production deployment recipe. Authentication, durable storage,
+schema migrations, TLS termination, and secret management are not configured.
+
+## CI
+
+[Maven CI](.github/workflows/ci.yml) runs on every branch push and on PRs targeting
+`main`, using Ubuntu, Temurin Java 21, Maven caching, and the verification command
+above. It also rejects a successful Maven run with no coverage report.
+
+The [coverage commenter](.github/workflows/coverage-comment.yml) runs separately
+with artifact-read and PR-write permissions. It does not check out PR code or
+restore its cache. It posts coverage when available, including after failed tests
+that produced execution data; otherwise it states that coverage is unavailable.
+The commenter must be present on the default branch and repository policy must
+allow PR comments.
+
+**Branch configuration caveat:** the remote default branch is currently `master`,
+but the PR triggers and comment filters target `main`. Push CI still runs on
+`master`; PRs targeting `master` do not receive this PR coverage flow. Align the
+branch strategy before relying on it.
+
+The current service stubs keep CI red. Require trusted review of workflow/build
+changes and a passing CI job before merging completed implementation work.
+Coverage comments are informational: PR-controlled code can alter its report.
+Actions use commit-SHA pins; keep them and Maven dependencies updated.
+
+## Repository map
+
+| Path | Purpose |
+| --- | --- |
+| `pom.xml` | Maven dependencies, Java version, packaging, JaCoCo |
+| `src/main/java/com/stackcraft/retroflow/RetroflowApplication.java` | Application entry point |
+| `src/main/java/com/stackcraft/retroflow/controller/` | HTTP routes |
+| `src/main/java/com/stackcraft/retroflow/dto/` | Request validation and response records |
+| `src/main/java/com/stackcraft/retroflow/service/` | Unimplemented business operations |
+| `src/main/java/com/stackcraft/retroflow/entity/` | JPA entities, relationships, and enums |
+| `src/main/java/com/stackcraft/retroflow/repository/` | Spring Data repositories |
+| `src/main/java/com/stackcraft/retroflow/web/` | Global exception handling |
+| `src/test/java/com/stackcraft/retroflow/` | Business-rule tests |
+| `docs/retroflow-brief.md` | Intended product behavior |
+| `Dockerfile`, `.dockerignore` | Container build and build-context allowlist |
+| `.github/workflows/` | Verification and PR coverage commenting |
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| Docker cannot connect to its daemon | Start Docker Desktop/Engine before building. |
+| Git clone is denied | Authenticate with GitHub and confirm repository access; never put a token in the clone URL. |
+| Port 8080 is occupied | Stop your own existing instance or use the alternate-port configuration above. |
+| Container name `retroflow` already exists | Inspect it before stopping it; do not delete someone else's container. |
+| Native build uses the wrong Java release | Check both `java -version` and `mvn --version`, plus the IDE Maven JVM. |
+| HTTP 500 on a valid business request | Service methods are still unimplemented; inspect application logs. |
+| HTTP 404 at `/` or `/swagger-ui` | No frontend or Swagger UI is configured. |
+| H2 console is missing in Docker | It is intentionally disabled; use a local Maven/IDE run for database inspection. |
+| Data disappears on restart | Expected for in-memory H2, even when the container is restarted. |
+| No JaCoCo HTML report after failed tests | Run the diagnostic reporting command after execution data has been written. |
+
+## Useful next tooling additions
+
+These are recommendations, **not installed features**: a Maven Wrapper to pin the
+build tool, an `.editorconfig` for consistent whitespace, a shared `.http` request
+collection, and a development-only DevTools setup for automatic restart. Add
+controller/integration tests and OpenAPI documentation alongside implemented
+endpoints rather than documenting unimplemented happy paths as working.
+
+For project questions, use the documented Slack channel, #retroflow-support.
